@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { createBentoSdk, walletAuthProvider } from '@bento.fun/sdk';
 import { privateKeyToAccount } from 'viem/accounts';
 import { TransactionResult, RiskResult, MarketExecutor } from '../core/interfaces.js';
@@ -67,20 +68,33 @@ export class BentoAdapter implements MarketExecutor {
       const account = privateKeyToAccount(privateKey as `0x${string}`);
       const address = account.address;
 
-      // 3. Sign EOA Login message
-      const ts = String(Date.now());
+      // 3. Sync clock with Bento server to prevent expired signature errors
+      let serverTime = Date.now();
+      try {
+        const timeRes = await axios.get(config.BENTO_URL, { timeout: 3000 });
+        if (timeRes.headers && timeRes.headers.date) {
+          serverTime = Date.parse(timeRes.headers.date);
+        }
+      } catch (err) {
+        logger.warn('BentoAdapter', 'Could not sync clock with Bento server. Defaulting to local time.');
+      }
+      const timeOffset = serverTime - Date.now();
+      const correctedNow = Date.now() + timeOffset;
+
+      // 4. Sign EOA Login message
+      const ts = String(correctedNow);
       const signature = await account.signMessage({
         message: `Bento.fun Login\nTimestamp: ${ts}\nWallet: ${address}`,
       });
 
-      // 4. Initialize temporary public client to log in
+      // 5. Initialize temporary public client to log in
       const tempSdk = createBentoSdk({
         baseUrl: config.BENTO_URL,
         apiKey: this.apiKey,
         auth: walletAuthProvider(() => ({})),
       });
 
-      // 5. Authenticate (Login or Register)
+      // 6. Authenticate (Login or Register)
       let authRes = await tempSdk.public.auth.eoaLogin({ address, signature, timestamp: ts });
       let token: string;
       if (!authRes.exists) {
@@ -94,22 +108,24 @@ export class BentoAdapter implements MarketExecutor {
       }
       token = authRes.token as string;
 
-      // 6. Initialize authenticated SDK instance
+      // 7. Initialize authenticated SDK instance
       const sdk = createBentoSdk({
         baseUrl: config.BENTO_URL,
         apiKey: this.apiKey,
         auth: walletAuthProvider(() => ({ Authorization: `Bearer ${token}` })),
       });
 
-      // 7. Create Prediction Market (Duel)
-      const startTime = new Date().toISOString();
-      const endTime = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+      // 8. Create Prediction Market (Duel)
+      // startTime must be at least 5 minutes ahead (we set to 35 minutes for bootstrap buffer)
+      const start = correctedNow + 35 * 60 * 1000;
+      const startTime = new Date(start).toISOString();
+      const endTime = new Date(start + 72 * 60 * 60 * 1000).toISOString();
 
       logger.info('BentoAdapter', `Creating prediction market duel for ${target}...`);
       const duelResult = await sdk.user.createDuel({
         question: marketQuestion,
         type: 'prediction',
-        category: 'SRE',
+        category: 'Football', // Must be one of: Cricket, Football, Basketball, American Football, Tennis, Baseball, Hockey, Formula 1
         description: `Automated SRE fragility hedge for ${target} under ${incidentType} failure risk.`,
         optionA: 'YES',
         optionB: 'NO',
@@ -117,6 +133,8 @@ export class BentoAdapter implements MarketExecutor {
         endTime,
         privacyAccess: 'public',
         collateralMode: 'credits', // Play/test credits stack
+      }, {
+        requestId: `create-${Date.now()}`,
       });
 
       if (!duelResult.raw || !duelResult.raw.success || !duelResult.raw.duelId) {
@@ -126,7 +144,7 @@ export class BentoAdapter implements MarketExecutor {
 
       logger.success('BentoAdapter', `Prediction market created successfully. Market ID: ${duelResult.raw.duelId}`);
 
-      // 8. Place prediction bet (against Option index 1, i.e., "NO")
+      // 9. Place prediction bet (against Option index 1, i.e., "NO")
       logger.info('BentoAdapter', `Requesting buy estimate for Option B (NO) on Market ${duelResult.raw.duelId}...`);
       const estimateRes = await sdk.user.estimateBuy({
         duelId: duelResult.raw.duelId,
