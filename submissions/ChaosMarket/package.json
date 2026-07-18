@@ -1,0 +1,46 @@
+{
+  "name": "chaosmarket",
+  "version": "2.0.0",
+  "description": "AI-Powered Infrastructure Fragility Prediction & Technical Debt Hedging Platform",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "tsc --noEmit",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --passWithNoTests",
+    "demo": "tsx src/index.ts --mode hybrid",
+    "simulate": "tsx src/index.ts --mode simulation",
+    "health": "tsx src/index.ts --mode simulation --health"
+  },
+  "keywords": [
+    "sre",
+    "prediction-market",
+    "devops",
+    "ai",
+    "hedging"
+  ],
+  "author": "Antigravity",
+  "license": "MIT",
+  "dependencies": {
+    "@bento.fun/sdk": "^0.7.0",
+    "@modelcontextprotocol/server-filesystem": "^2026.7.10",
+    "axios": "^1.7.2",
+    "chalk": "^5.3.0",
+    "cli-table3": "^0.6.5",
+    "dotenv": "^16.4.5",
+    "openai": "^4.52.7",
+    "ora": "^8.0.1",
+    "viem": "^2.55.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.0.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.5",
+    "tsx": "^4.16.0",
+    "typescript": "^5.4.5"
+  }
+}
