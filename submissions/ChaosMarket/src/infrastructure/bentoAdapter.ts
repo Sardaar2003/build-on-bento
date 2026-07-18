@@ -31,11 +31,10 @@ export class BentoAdapter implements MarketExecutor {
     incidentType: string,
     result: RiskResult
   ): Promise<TransactionResult> {
-    if (config.mode === 'SIMULATION' || config.mode === 'HYBRID') {
-      const modeLabel = config.mode === 'SIMULATION' ? 'SIMULATION' : 'HYBRID';
+    if (config.mode === 'SIMULATION') {
       logger.info(
         'BentoAdapter',
-        `Running in ${modeLabel} mode. Intercepting trade and returning mock transaction.`
+        `Running in SIMULATION mode. Intercepting trade and returning mock transaction.`
       );
       return this.sendMockTrade(target, incidentType);
     }
