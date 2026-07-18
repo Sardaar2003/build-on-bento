@@ -35,8 +35,8 @@ export class AnakinAdapter implements EvidenceProvider {
   }
 
   public async collectEvidence(target: string): Promise<Evidence> {
-    if (config.mode === 'SIMULATION') {
-      logger.debug('AnakinAdapter', `SIMULATION mode: Loading mock evidence for ${target}`);
+    if (config.mode === 'SIMULATION' || config.mode === 'HYBRID') {
+      logger.debug('AnakinAdapter', `${config.mode} mode: Loading mock evidence for ${target}`);
       return this.fetchMockEvidence(target);
     }
 
