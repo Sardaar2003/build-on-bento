@@ -104,7 +104,7 @@ async function gatherHealthStatus(schedulerState: SchedulerState): Promise<Healt
  * Standard trigger cycle for SRE simulation tracks.
  */
 function triggerSimulationCycle(): void {
-  if (config.mode !== 'SIMULATION') return;
+  if (config.mode !== 'SIMULATION' && config.mode !== 'HYBRID') return;
 
   if (config.simulationType === 'DEPENDENCY') {
     incidentSimulator.simulateDependencyFailure(config.targetRepo);
