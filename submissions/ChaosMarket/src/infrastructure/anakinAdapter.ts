@@ -1,4 +1,5 @@
 import axios from 'axios';
+import OpenAI from 'openai';
 import { Evidence, EvidenceProvider } from '../core/interfaces.js';
 import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
@@ -47,18 +48,84 @@ export class AnakinAdapter implements EvidenceProvider {
    * Performs the real API request to Anakin.
    */
   private async fetchRealEvidence(target: string): Promise<Evidence> {
-    logger.info('AnakinAdapter', `Querying Anakin API for: ${target}`);
+    logger.info('AnakinAdapter', `Querying real-time Anakin Search API for: ${target}`);
 
     const callApi = async () => {
-      const response = await axios.get(`${this.baseUrl}/evidence`, {
-        params: { target },
+      // 1. Post request to the real Anakin Search endpoint (/search)
+      const response = await axios.post(`${this.baseUrl}/search`, {
+        prompt: `github repository ${target} recent issues, status page, open issues count, commit frequency, security alerts, and health metrics`,
+        limit: 5,
+      }, {
         headers: {
+          'X-API-Key': this.apiKey,
           'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        timeout: 5000, // Timeout limit: 5 seconds
+        timeout: 10000, // Timeout limit: 10 seconds for real search
       });
-      return response.data as Evidence;
+
+      const searchResults = response.data.results || [];
+      logger.info('AnakinAdapter', `Acquired ${searchResults.length} search hits from Anakin. Commencing AI extraction...`);
+
+      const snippetsText = searchResults.map((r: any) => `Title: ${r.title}\nSnippet: ${r.snippet}\nUrl: ${r.url}`).join('\n\n');
+
+      // 2. Initialize OpenAI to parse unstructured search text into SRE JSON metrics
+      const openai = new OpenAI({
+        apiKey: config.OPENAI_API_KEY,
+        baseURL: config.OPENAI_BASE_URL,
+        timeout: config.OPENAI_TIMEOUT_MS,
+      });
+
+      const chatCompletion = await openai.chat.completions.create({
+        model: config.OPENAI_MODEL,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an SRE telemetry extractor. Analyze the search results of a target repository and output ONLY a raw JSON object matching the requested schema. Do not write markdown blocks or surrounding text.',
+          },
+          {
+            role: 'user',
+            content: `Based on the following search results about the target repository "${target}", extract/estimate the SRE status parameters.
+            
+Search Results:
+${snippetsText}
+
+Output a raw JSON matching this schema:
+{
+  "daysSinceIssueCreated": number,
+  "daysSinceLastComment": number,
+  "issueVelocity": "LOW" | "NORMAL" | "HIGH",
+  "maintainerResponseTimeMs": number,
+  "commitFrequencyPerWeek": number,
+  "openIssueCount": number,
+  "securityAdvisories": "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
+  "repositoryHealth": "EXCELLENT" | "AVERAGE" | "POOR"
+}
+
+Rules:
+1. Return ONLY the raw JSON object.
+2. Do NOT wrap output inside markdown formatting blocks like \`\`\`json.
+3. If search results indicates excellent health, return optimistic values. If they indicate stagnation, outages, or vulnerabilities, adjust the numbers accordingly.`,
+          },
+        ],
+        temperature: 0,
+      });
+
+      const text = chatCompletion.choices[0]?.message?.content?.trim() || '{}';
+      const parsed = JSON.parse(text);
+
+      return {
+        targetId: target,
+        daysSinceIssueCreated: Number(parsed.daysSinceIssueCreated) || 1,
+        daysSinceLastComment: Number(parsed.daysSinceLastComment) || 1,
+        issueVelocity: parsed.issueVelocity || 'NORMAL',
+        maintainerResponseTimeMs: Number(parsed.maintainerResponseTimeMs) || 1800000,
+        commitFrequencyPerWeek: Number(parsed.commitFrequencyPerWeek) || 35,
+        openIssueCount: Number(parsed.openIssueCount) || 12,
+        securityAdvisories: parsed.securityAdvisories || 'LOW',
+        repositoryHealth: parsed.repositoryHealth || 'EXCELLENT',
+      } as Evidence;
     };
 
     return withRetry(callApi, 'AnakinAdapter', `Fetch evidence for ${target}`);
